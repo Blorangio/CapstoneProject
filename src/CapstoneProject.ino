@@ -67,7 +67,7 @@ int brightness = 64;
 
 bool readyToPublish = false;
 
-bool allowRun = false;
+volatile bool allowRun = false;
 
 void setup()
 {
