@@ -6,11 +6,12 @@
 #line 1 "/Users/admin/Documents/CTD_2023/Labs/CapstoneProject/src/CapstoneProject.ino"
 #include "LIS3DH.h"
 #include "MQTT.h"
+#include "blynk.h"
 
 void setup();
 void loop();
 void setColor(int red, int green, int blue);
-#line 4 "/Users/admin/Documents/CTD_2023/Labs/CapstoneProject/src/CapstoneProject.ino"
+#line 5 "/Users/admin/Documents/CTD_2023/Labs/CapstoneProject/src/CapstoneProject.ino"
 #define accelerometerChipSelect D2
 #define redLedPin D3
 #define greenLedPin D4
@@ -19,7 +20,7 @@ void setColor(int red, int green, int blue);
 
 SYSTEM_THREAD(ENABLED);
 
-void callback(char* topic, byte* payload, unsigned int length);
+void callback(char *topic, byte *payload, unsigned int length);
 
 MQTT client("lab.thewcl.com", 1883, callback);
 
@@ -35,7 +36,7 @@ void publishToMQTT();
 Timer readyToUpdateTimer(500, readyToUpdateFunc, true);
 Timer ledOFF(500, previouslyShakedTrue, true);
 Timer resettimesShaked(1000, updateAfterShakesCounted, true);
-Timer publishMQTT(1000, publishToMQTT, false);
+Timer publishMQTT(2000, publishToMQTT, false);
 bool readyToUpdate = true;
 
 double movementAxis[3];
@@ -60,6 +61,11 @@ String data = "0000000000000";
 
 int colorIndex = 0;
 int mappedColorIndex;
+
+bool isHigh = false;
+bool lookForBump = true;
+bool isLow = false;
+int highVal = 0;
 
 bool isLightOn = false;
 bool changingBrightness = false;
@@ -90,15 +96,18 @@ void setup()
 
 void loop()
 {
-  if (client.isConnected()) {
+  if (client.isConnected())
+  {
     client.loop();
-  } else {
+  }
+  else
+  {
     client.connect(System.deviceID());
   }
-  if(readyToPublish) {
-    data = strRed + strGreen + strBlue + strBrightness + (String)isLightOn;
+  if (readyToPublish)
+  {
+    data = strRed + strGreen + strBlue + strBrightness + (String)(isLightOn + (changingBrightness || changingColor) * 2);
     client.publish("gestureLamp", data);
-    Serial.println(data + " published");
     readyToPublish = false;
   }
   if (accel.getSample(sample))
@@ -110,6 +119,31 @@ void loop()
     movementAxis[0] = round(sample.x / (32768.0 / 2.0) * 10.0) / 10.0;
     movementAxis[1] = round(sample.y / (32768.0 / 2.0) * 10.0) / 10.0;
     movementAxis[2] = round(sample.z / (32768.0 / 2.0) * 10.0) / 10.0;
+
+    if (abs(movementAxis[1] - previousAxisData[1]) > 0.1 && lookForBump && (changingBrightness || changingColor))
+    {
+      if (!isHigh)
+      {
+        isHigh = true;
+        highVal = (movementAxis[1] - previousAxisData[1]) * 10;
+        lookForBump = false;
+      }
+      else
+      {
+        isLow = true;
+        highVal = 0;
+        lookForBump = false;
+      }
+    }
+    if (movementAxis[1] == 0)
+    {
+      lookForBump = true;
+      if (isLow)
+      {
+        isHigh = false;
+        isLow = false;
+      }
+    }
   }
   for (int i = 0; i < 3; i++)
   {
@@ -144,6 +178,7 @@ void loop()
   }
   if (readyToUpdate)
   {
+    Serial.println(movementAxis[2]);
     readyToUpdate = false;
     readyToUpdateTimer.start();
 
@@ -154,33 +189,45 @@ void loop()
       green = -abs(mappedColorIndex - (255 * 1.5)) + (255 * 1.5);
       blue = -abs(mappedColorIndex - (255 * 2.5)) + (255 * 1.5);
       red = abs(mappedColorIndex - (255 * 2)) - 255;
-      if(red>255) {
+      if (red > 255)
+      {
         red = 255;
-      } else if(red<0) {
+      }
+      else if (red < 0)
+      {
         red = 0;
       }
-      if(green>255) {
+      if (green > 255)
+      {
         green = 255;
-      } else if(green<0) {
+      }
+      else if (green < 0)
+      {
         green = 0;
       }
-      if(blue>255) {
+      if (blue > 255)
+      {
         blue = 255;
-      } else if(blue<0) {
+      }
+      else if (blue < 0)
+      {
         blue = 0;
       }
       setColor(red, green, blue);
       strRed = (String)red;
       strGreen = (String)green;
       strBlue = (String)blue;
-      for(int i = 0;i<3-strRed.length();i+=0) {
-        strRed = "0"+strRed;
+      for (int i = 0; i < 3 - strRed.length(); i += 0)
+      {
+        strRed = "0" + strRed;
       }
-      for(int i = 0;i<3-strGreen.length();i+=0) {
-        strGreen = "0"+strGreen;
+      for (int i = 0; i < 3 - strGreen.length(); i += 0)
+      {
+        strGreen = "0" + strGreen;
       }
-      for(int i = 0;i<3-strBlue.length();i+=0) {
-        strBlue = "0"+strBlue;
+      for (int i = 0; i < 3 - strBlue.length(); i += 0)
+      {
+        strBlue = "0" + strBlue;
       }
     }
 
@@ -196,8 +243,9 @@ void loop()
         brightness = 64;
       }
       strBrightness = (String)map(brightness, -64, 64, 0, 255);
-      for(int i = 0;i<3-strBrightness.length();i+=0) {
-        strBrightness = "0"+strBrightness;
+      for (int i = 0; i < 3 - strBrightness.length(); i += 0)
+      {
+        strBrightness = "0" + strBrightness;
       }
       analogWrite(generalPower, map(brightness, -64, 64, 0, 255));
     }
@@ -223,7 +271,6 @@ void previouslyShakedTrue()
 
 void updateAfterShakesCounted()
 {
-  Serial.println(timesShaked);
   if (!changingColor)
   {
     switch (timesShaked % 4)
@@ -260,10 +307,11 @@ void updateAfterShakesCounted()
   timesShaked = 0;
 }
 
-void publishToMQTT() {
+void publishToMQTT()
+{
   readyToPublish = true;
 }
 
-void callback(char* topic, byte* payload, unsigned int length) {
-
+void callback(char *topic, byte *payload, unsigned int length)
+{
 }
